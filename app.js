@@ -3,6 +3,50 @@
    Lógica del juego por turnos, validaciones, NEM PDA y confeti interactivo
    ========================================================================== */
 
+// ==========================================================================
+// 0. SISTEMA DE NARRACIÓN DE VOZ (SpeechSynthesis API)
+// Accesibilidad para alumnas/os con baja capacidad visual
+// ==========================================================================
+
+let voiceEnabled = true; // La voz está activa por defecto
+
+/**
+ * Narra un texto en voz alta usando la API SpeechSynthesis del navegador.
+ * @param {string} text - El texto a leer en voz alta.
+ */
+function speak(text) {
+    if (!voiceEnabled) return;
+    if (!window.speechSynthesis) return; // Navegador sin soporte
+    window.speechSynthesis.cancel(); // Cancela cualquier narración en curso
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'es-MX';  // Español de México
+    utterance.rate = 0.88;     // Velocidad más lenta y clara para niños
+    utterance.pitch = 1.15;    // Tono ligeramente más agudo y amigable
+    utterance.volume = 1.0;    // Volumen máximo
+    window.speechSynthesis.speak(utterance);
+}
+
+/**
+ * Activa o desactiva la narración de voz y actualiza el botón en el header.
+ */
+function toggleVoice() {
+    voiceEnabled = !voiceEnabled;
+    const btn = document.getElementById('btn-toggle-voice');
+    if (btn) {
+        btn.innerHTML = voiceEnabled
+            ? '<i class="fa-solid fa-volume-high"></i> <span>Voz: ON</span>'
+            : '<i class="fa-solid fa-volume-xmark"></i> <span>Voz: OFF</span>';
+        btn.title = voiceEnabled ? 'Desactivar narración de voz' : 'Activar narración de voz';
+        // Cambiar apariencia visual según el estado
+        btn.classList.toggle('voice-off', !voiceEnabled);
+    }
+    if (voiceEnabled) {
+        speak('Narración de voz activada.');
+    } else {
+        window.speechSynthesis.cancel();
+    }
+}
+
 // --- Estado Global de la Partida ---
 const gameState = {
     playerCount: 2,
@@ -134,7 +178,7 @@ function setupEventListeners() {
     // Revelar turno tras transición
     DOM.btnRevealTurn.addEventListener('click', () => {
         showScreen(DOM.screenGame);
-        renderHand();
+        renderHand(); // La narración de fichas jugables ocurre dentro de renderHand()
     });
     
     // Robar del pozo
@@ -149,6 +193,12 @@ function setupEventListeners() {
     
     // Reiniciar
     DOM.btnRestart.addEventListener('click', restartToSetup);
+    
+    // Botón de activar/desactivar voz
+    const btnVoice = document.getElementById('btn-toggle-voice');
+    if (btnVoice) {
+        btnVoice.addEventListener('click', toggleVoice);
+    }
     
     // Modal Pedagógico
     DOM.btnPedagogic.addEventListener('click', () => DOM.modalPedagogic.classList.add('active'));
@@ -307,6 +357,9 @@ function goToPlayerTransition(playerIndex) {
     DOM.sidePickerOverlay.classList.add('hidden');
     DOM.btnPassTurn.classList.add('hidden');
     
+    // Narrar el cambio de turno
+    speak(`¡Es el turno de ${player.name}! Pasa el dispositivo y toca Ver mis fichas.`);
+    
     showScreen(DOM.screenTransition);
 }
 
@@ -327,7 +380,7 @@ function renderBoard() {
     const leftVal = getBoardEndpoint('left');
     const rightVal = getBoardEndpoint('right');
     
-    // Crear indicador visual izquierdo
+    // Crear indicador visual izquierdo (con número narrado en el tooltip)
     const leftIndicator = document.createElement('div');
     leftIndicator.className = 'board-endpoint';
     leftIndicator.title = `Extremo izquierdo: busca un ${leftVal}`;
@@ -345,6 +398,11 @@ function renderBoard() {
     rightIndicator.className = 'board-endpoint';
     rightIndicator.title = `Extremo derecho: busca un ${rightVal}`;
     DOM.gameBoard.appendChild(rightIndicator);
+    
+    // Narrar los extremos del tablero para la alumna con baja visión
+    if (gameState.board.length > 0) {
+        speak(`El tren tiene el número ${leftVal} a la izquierda y el número ${rightVal} a la derecha.`);
+    }
     
     // Auto-scroll del tablero hacia la derecha para centrar la última ficha jugada
     setTimeout(() => {
@@ -386,20 +444,36 @@ function renderHand() {
         DOM.playerHand.appendChild(tileEl);
     });
     
-    // Actualizar mensaje y botón de pasar
+    // Actualizar mensaje y botón de pasar, y narrar el estado del turno
     if (hasPlayableTiles) {
         DOM.controlsStatusMsg.innerHTML = '✨ ¡Tienes fichas que sirven! Toca una ficha que brille para jugarla.';
         DOM.controlsStatusMsg.style.color = 'var(--color-success)';
         DOM.btnPassTurn.classList.add('hidden');
+        
+        // Narrar qué fichas son jugables para la alumna con baja visión
+        const player = gameState.players[gameState.currentPlayerIndex];
+        const leftVal = getBoardEndpoint('left');
+        const rightVal = getBoardEndpoint('right');
+        const playableTiles = player.hand.filter(tile =>
+            tile[0] === leftVal || tile[1] === leftVal ||
+            tile[0] === rightVal || tile[1] === rightVal
+        );
+        const playableDescriptions = playableTiles.map(tile => `ficha ${tile[0]} con ${tile[1]}`).join(', ');
+        // La narración del tablero ya ocurrió en renderBoard(); aquí narramos las fichas jugables.
+        setTimeout(() => {
+            speak(`Puedes jugar: ${playableDescriptions}. Toca la ficha que brilla.`);
+        }, 2200); // Esperar a que termine la narración del tablero
     } else {
         if (gameState.boneyard.length > 0) {
             DOM.controlsStatusMsg.innerHTML = '💡 No tienes fichas que sirvan. ¡Toca <strong>El Pozo</strong> para robar!';
             DOM.controlsStatusMsg.style.color = 'var(--color-danger)';
             DOM.btnPassTurn.classList.add('hidden');
+            setTimeout(() => speak('No tienes fichas que sirvan. Toca el Pozo para robar una ficha.'), 2200);
         } else {
             DOM.controlsStatusMsg.innerHTML = '🚫 No hay fichas en el pozo y no tienes jugadas. Toca <strong>Pasar Turno</strong>.';
             DOM.controlsStatusMsg.style.color = 'var(--color-warning)';
             DOM.btnPassTurn.classList.remove('hidden');
+            setTimeout(() => speak('No hay fichas en el pozo y no tienes jugadas. Toca Pasar Turno.'), 2200);
         }
     }
 }
@@ -451,6 +525,8 @@ function handleSelectTile(index, fitsLeft, fitsRight) {
     const tile = player.hand[index];
     
     if (!fitsLeft && !fitsRight) {
+        // Narrar el error: ficha no válida
+        speak(`La ficha ${tile[0]} con ${tile[1]} no sirve aquí. Elige una ficha que brille.`);
         // Sacudir la ficha seleccionada como retroalimentación visual de error
         const tileElements = DOM.playerHand.querySelectorAll('.domino-tile');
         tileElements[index].classList.add('shake-animation');
@@ -459,6 +535,9 @@ function handleSelectTile(index, fitsLeft, fitsRight) {
         }, 400);
         return;
     }
+    
+    // Narrar la ficha seleccionada válida
+    speak(`Seleccionaste la ficha ${tile[0]} con ${tile[1]}.`);
     
     gameState.selectedTileIndex = index;
     
@@ -543,6 +622,7 @@ function handleDrawCard() {
     if (hasPlayable) {
         DOM.controlsStatusMsg.innerHTML = '⚠️ ¡Tienes fichas que sirven! No necesitas robar del pozo.';
         DOM.controlsStatusMsg.style.color = 'var(--color-warning)';
+        speak('Todavía tienes fichas que sirven. No necesitas robar del pozo.');
         return;
     }
     
@@ -550,12 +630,14 @@ function handleDrawCard() {
         DOM.controlsStatusMsg.innerHTML = '🚫 El pozo está vacío. Tienes que pasar tu turno.';
         DOM.controlsStatusMsg.style.color = 'var(--color-danger)';
         DOM.btnPassTurn.classList.remove('hidden');
+        speak('El pozo está vacío. Toca Pasar Turno.');
         return;
     }
     
-    // Robar una ficha
+    // Robar una ficha y narrarla
     const newTile = gameState.boneyard.pop();
     player.hand.push(newTile);
+    speak(`Robaste una ficha del pozo: ${newTile[0]} con ${newTile[1]}.`);
     
     updateBoneyardUI();
     renderHand();
@@ -651,6 +733,9 @@ function endGame(reason, winner) {
     gameState.players.forEach(p => {
         p.score = calculatePlayerScore(p);
     });
+    
+    // Narrar al ganador
+    speak(`¡El juego terminó! El ganador es ${winner.name}. ¡Felicidades!`);
     
     // Actualizar UI
     DOM.winnerAvatar.textContent = winner.avatar;
